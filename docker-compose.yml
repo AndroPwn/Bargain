@@ -1,0 +1,68 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ecoloop_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./server/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./server/db/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build: ./server
+    container_name: ecoloop_server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      PORT: 3001
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_VERIFY_SID: ${TWILIO_VERIFY_SID}
+      JWT_SECRET: ${JWT_SECRET}
+      DEV_MODE: ${DEV_MODE}
+      EMAIL_USER: ${EMAIL_USER}
+      EMAIL_PASS: ${EMAIL_PASS}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY}
+      NVIDIA_API_KEY_MATCH: ${NVIDIA_API_KEY_MATCH}
+      SERVER_URL: ${SERVER_URL}
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+      - ./uploads:/app/uploads
+
+  client:
+    build: ./client
+    container_name: ecoloop_client
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      VITE_API_URL: ${VITE_API_URL}
+      VITE_DEV_MODE: ${DEV_MODE}
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+
+volumes:
+  pgdata:

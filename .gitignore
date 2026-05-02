@@ -1,0 +1,31 @@
+# Environment files
+.env
+.env.local
+.env.production
+server/.env
+client/.env
+
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Uploads (user-generated content)
+uploads/
+server/uploads/
+server/src/routes/app/uploads/
+
+# Build output
+client/dist/
+client/build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+pgdata/

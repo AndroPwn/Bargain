@@ -1,0 +1,227 @@
+import { useState } from 'react'
+import { motion } from 'framer-motion'
+import { CheckCircle } from 'lucide-react'
+import { api } from '../lib/api'
+
+const CATEGORIES = ['clothes','electronics','books','food','other']
+const CAT_LABELS = { clothes:'Clothing', electronics:'Electronics', books:'Books', food:'Food', other:'Other' }
+const NEIGHBORHOODS = [
+  { label:'Koramangala', geohash:'tdr1u' },
+  { label:'HSR Layout',  geohash:'tdr1g' },
+  { label:'Indiranagar', geohash:'tdr1v' },
+  { label:'Bellandur',   geohash:'tdr1t' },
+  { label:'Whitefield',  geohash:'tdr3h' },
+  { label:'Jayanagar',   geohash:'tdr1q' },
+]
+
+export default function ListItem({ setPage, user }) {
+  const [tab, setTab] = useState('have')
+
+  const [wantCategory, setWantCategory] = useState('clothes')
+  const [wantDesc,     setWantDesc]     = useState('')
+  const [wantItemName, setWantItemName] = useState('')
+  const [wantDone,     setWantDone]     = useState(false)
+  const [wantLoading,  setWantLoading]  = useState(false)
+  const [wantError,    setWantError]    = useState('')
+
+  const [title,        setTitle]        = useState('')
+  const [desc,         setDesc]         = useState('')
+  const [category,     setCategory]     = useState('clothes')
+  const [condition,    setCondition]    = useState('good')
+  const [hood,         setHood]         = useState(NEIGHBORHOODS[0])
+  const [imageFile,    setImageFile]    = useState(null)
+  const [imagePreview, setImagePreview] = useState(null)
+  const [loading,      setLoading]      = useState(false)
+  const [done,         setDone]         = useState(false)
+  const [error,        setError]        = useState('')
+
+  function onFileChange(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    setImageFile(file)
+    setImagePreview(URL.createObjectURL(file))
+  }
+
+  async function submitWant() {
+    setWantLoading(true); setWantError('')
+    try {
+      await api.wants.create(wantCategory, wantDesc, wantItemName)
+      setWantDone(true)
+      setTimeout(() => setPage('dashboard'), 2000)
+    } catch (e) { setWantError(e.message) }
+    finally { setWantLoading(false) }
+  }
+
+  async function submit() {
+    if (!title.trim()) return setError('Item name is required')
+    setLoading(true); setError('')
+    try {
+      let image_url = null
+      if (imageFile) image_url = await api.upload.image(imageFile)
+      await api.listings.create({
+        title: title.trim(),
+        description: desc.trim(),
+        category, condition,
+        neighborhood: hood.label,
+        geohash: hood.geohash,
+        image_url,
+      })
+      setDone(true)
+      setTimeout(() => setPage('dashboard'), 2200)
+    } catch (e) { setError(e.message) }
+    finally { setLoading(false) }
+  }
+
+  if (done) return (
+    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center', gap: 16 }}>
+      <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 0.5 }}>
+        <CheckCircle size={64} style={{ color: 'hsl(130 45% 38%)' }} />
+      </motion.div>
+      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 600, color: 'hsl(28 25% 12%)' }}>Item Listed!</h2>
+      <p style={{ color: 'hsl(130 15% 48%)' }}>We are scanning for matches nearby. Redirecting...</p>
+    </motion.div>
+  )
+
+  if (wantDone) return (
+    <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', textAlign: 'center', gap: 16 }}>
+      <div style={{ fontSize: 64 }}>🙏</div>
+      <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 600, color: 'hsl(28 25% 12%)' }}>Want Added!</h2>
+      <p style={{ color: 'hsl(130 15% 48%)' }}>We will match you when something comes up. Redirecting...</p>
+    </motion.div>
+  )
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}
+      style={{ paddingTop: 36, maxWidth: 520, margin: '0 auto' }}>
+
+      <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 30, fontWeight: 600, color: 'hsl(28 25% 12%)', marginBottom: 6 }}>
+        {tab === 'have' ? 'List an Item' : 'Request an Item'}
+      </h1>
+      <p style={{ fontSize: 14, color: 'hsl(130 15% 48%)', marginBottom: 20 }}>
+        {tab === 'have' ? 'Tell us what you have and where you are.' : 'Tell us what you are looking for.'}
+      </p>
+
+      <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
+        <button onClick={() => setTab('have')} className={tab === 'have' ? 'btn-primary' : 'btn-outline'}
+          style={{ flex: 1, padding: '10px 0', fontSize: 14 }}>
+          I Have Something
+        </button>
+        <button onClick={() => setTab('want')} className={tab === 'want' ? 'btn-primary' : 'btn-outline'}
+          style={{ flex: 1, padding: '10px 0', fontSize: 14 }}>
+          I Want Something
+        </button>
+      </div>
+
+      {tab === 'want' && (
+        <div className="glass" style={{ borderRadius: 24, padding: 28 }}>
+          <div style={{ marginBottom: 20 }}>
+            <label className="field-label">Category</label>
+            <select className="input-field" style={{ marginTop: 4 }} value={wantCategory} onChange={e => setWantCategory(e.target.value)}>
+              {CATEGORIES.map(c => <option key={c} value={c}>{CAT_LABELS[c]}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom: 20 }}>
+            <label className="field-label">Item name <span style={{fontWeight:400,color:'hsl(130 15% 55%)'}}>— for smarter matching</span></label>
+            <input className="input-field" style={{ marginTop: 4 }}
+              placeholder="e.g. winter jacket, guitar, PS5…"
+              value={wantItemName} onChange={e => setWantItemName(e.target.value)} />
+          </div>
+          <div style={{ marginBottom: 20 }}>
+            <label className="field-label">Description</label>
+            <textarea className="input-field" style={{ marginTop: 4, resize: 'vertical' }} rows={3}
+              placeholder="e.g. Looking for a winter jacket, size M, any colour..."
+              value={wantDesc} onChange={e => setWantDesc(e.target.value)} />
+          </div>
+          <div style={{ borderRadius: 14, padding: '12px 16px', background: 'hsl(130 40% 92%)', color: 'hsl(135 50% 28%)', fontSize: 13, marginBottom: 20 }}>
+            When someone lists what you want, the matching engine will find you automatically!
+          </div>
+          {wantError && <p style={{ color: 'hsl(0 70% 50%)', fontSize: 13, marginBottom: 12 }}>{wantError}</p>}
+          <button className="btn-primary" style={{ width: '100%', padding: '14px', fontSize: 15 }}
+            onClick={submitWant} disabled={wantLoading}>
+            {wantLoading ? 'Adding...' : 'Add to Wants'}
+          </button>
+        </div>
+      )}
+
+      {tab === 'have' && (
+        <div className="glass" style={{ borderRadius: 24, padding: 28 }}>
+
+          <div style={{ marginBottom: 20 }}>
+            <label className="field-label">Photo (optional)</label>
+            {imagePreview ? (
+              <div style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', marginTop: 6 }}>
+                <img src={imagePreview} alt="preview" style={{ width: '100%', height: 160, objectFit: 'cover' }} />
+                <button onClick={() => { setImageFile(null); setImagePreview(null) }} style={{
+                  position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.5)',
+                  border: 'none', color: '#fff', width: 28, height: 28, borderRadius: '50%',
+                  cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>X</button>
+              </div>
+            ) : (
+              <label style={{ display: 'block', marginTop: 6, cursor: 'pointer' }}>
+                <div style={{ border: '2px dashed hsl(135 15% 88%)', borderRadius: 12, padding: '24px 16px', textAlign: 'center', transition: 'border-color .2s' }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = 'hsl(130 45% 38%)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = 'hsl(135 15% 88%)'}>
+                  <div style={{ fontSize: 28, marginBottom: 6 }}>📷</div>
+                  <p style={{ fontSize: 13, color: 'hsl(130 15% 48%)' }}>Click to upload · Max 5MB</p>
+                </div>
+                <input type="file" accept="image/*" onChange={onFileChange} style={{ display: 'none' }} />
+              </label>
+            )}
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <label className="field-label">Item name *</label>
+            <input className="input-field" style={{ marginTop: 4 }} placeholder="e.g. Winter Jacket, Acoustic Guitar..."
+              value={title} onChange={e => setTitle(e.target.value)} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+            <div>
+              <label className="field-label">Category</label>
+              <select className="input-field" style={{ marginTop: 4 }} value={category} onChange={e => setCategory(e.target.value)}>
+                {CATEGORIES.map(c => <option key={c} value={c}>{CAT_LABELS[c]}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="field-label">Condition</label>
+              <select className="input-field" style={{ marginTop: 4 }} value={condition} onChange={e => setCondition(e.target.value)}>
+                <option value="new">New</option>
+                <option value="good">Good</option>
+                <option value="fair">Fair</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <label className="field-label">Neighbourhood</label>
+            <select className="input-field" style={{ marginTop: 4 }} value={hood.label}
+              onChange={e => setHood(NEIGHBORHOODS.find(n => n.label === e.target.value))}>
+              {NEIGHBORHOODS.map(n => <option key={n.label}>{n.label}</option>)}
+            </select>
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <label className="field-label">Description</label>
+            <textarea className="input-field" style={{ marginTop: 4, resize: 'vertical' }} rows={3}
+              placeholder="Condition, brand, size, any details..."
+              value={desc} onChange={e => setDesc(e.target.value)} />
+          </div>
+
+          <div style={{ borderRadius: 14, padding: '12px 16px', background: 'hsl(130 40% 92%)', color: 'hsl(135 50% 28%)', fontSize: 13, marginBottom: 20 }}>
+            The matching engine finds trade circles automatically - just list what you have!
+          </div>
+
+          {error && <p style={{ color: 'hsl(0 70% 50%)', fontSize: 13, marginBottom: 12 }}>{error}</p>}
+
+          <button className="btn-primary" style={{ width: '100%', padding: '14px', fontSize: 15 }}
+            onClick={submit} disabled={loading || !title.trim()}>
+            {loading ? 'Listing...' : 'Submit Listing'}
+          </button>
+        </div>
+      )}
+    </motion.div>
+  )
+}
