@@ -27,7 +27,7 @@ Or if using the .ppk key with PuTTY/psftp on Windows, use psftp to upload the fo
 
 ### 2. SSH into VPS
 ```bash
-ssh -i ~/ctfd/ssh-key.pem root@YOUR_VPS_IP
+ssh -i ssh-key.pem root@YOUR_VPS_IP
 ```
 
 ### 3. Edit the .env file — set your VPS IP
