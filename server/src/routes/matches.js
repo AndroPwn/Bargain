@@ -11,7 +11,10 @@ let _cacheTime = 0;
 let _running   = false;     // true while AI is scanning
 const CACHE_TTL = 5 * 60 * 1000;
 
-function invalidateCache() { _cache = null; _cacheTime = 0; }
+export function invalidateMatchCache() {
+  _cache = null;
+  _cacheTime = 0;
+}
 
 async function startBackgroundRun() {
   if (_running) return;                            // already in progress
@@ -98,21 +101,53 @@ export default function createMatchRoutes(io) {
     const { chain } = req.body;
     if (!chain || chain.length < 2)
       return res.status(400).json({ error: "chain must have at least 2 participants" });
+    if (!chain.some(member => member.id === req.user.id))
+      return res.status(403).json({ error: "You must be part of the match you create" });
+
+    const normalizedChain = chain.map(member => ({
+      id: member.id,
+      listingId: member.listingId || member.listing_id,
+    }));
+    if (normalizedChain.some(member => !member.id || !member.listingId))
+      return res.status(400).json({ error: "each participant must include id and listingId" });
+    if (new Set(normalizedChain.map(member => member.id)).size !== normalizedChain.length)
+      return res.status(400).json({ error: "chain cannot contain duplicate users" });
+    if (new Set(normalizedChain.map(member => member.listingId)).size !== normalizedChain.length)
+      return res.status(400).json({ error: "chain cannot contain duplicate listings" });
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
-      const matchType = chain.length === 2 ? "one_to_one" : "circular";
+      for (const member of normalizedChain) {
+        const { rows: [listing] } = await client.query(
+          "SELECT id, user_id, status FROM listings WHERE id=$1",
+          [member.listingId]
+        );
+        if (!listing) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ error: "Listing not found" });
+        }
+        if (listing.user_id !== member.id) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: "Listing does not belong to participant" });
+        }
+        if (listing.status !== "active") {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ error: "One or more listings are no longer active" });
+        }
+      }
+
+      const matchType = normalizedChain.length === 2 ? "one_to_one" : "circular";
       const { rows: [match] } = await client.query(
         "INSERT INTO matches (match_type) VALUES ($1) RETURNING *", [matchType]
       );
 
       const participantIds = [];
-      for (const member of chain) {
+      for (const member of normalizedChain) {
         const { rows: [p] } = await client.query(
           "INSERT INTO match_participants (match_id, user_id, listing_id) VALUES ($1,$2,$3) RETURNING id",
-          [match.id, member.id, member.listingId || null]
+          [match.id, member.id, member.listingId]
         );
         participantIds.push(p.id);
       }
@@ -124,14 +159,13 @@ export default function createMatchRoutes(io) {
         );
       }
 
-      for (const member of chain) {
-        if (member.listingId)
-          await client.query("UPDATE listings SET status='matched' WHERE id=$1", [member.listingId]);
+      for (const member of normalizedChain) {
+        await client.query("UPDATE listings SET status='matched' WHERE id=$1", [member.listingId]);
       }
 
       await client.query("COMMIT");
-      invalidateCache();
-      res.status(201).json({ match, participantCount: chain.length });
+      invalidateMatchCache();
+      res.status(201).json({ match, participantCount: normalizedChain.length });
     } catch (e) {
       await client.query("ROLLBACK");
       if (e.code === "23505") return res.status(409).json({ error: "Match already exists" });
@@ -146,10 +180,14 @@ export default function createMatchRoutes(io) {
     try {
       await client.query("BEGIN");
 
-      await client.query(
+      const updated = await client.query(
         "UPDATE match_participants SET confirmed=TRUE WHERE match_id=$1 AND user_id=$2",
         [req.params.id, req.user.id]
       );
+      if (updated.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ error: "Not in this match" });
+      }
 
       const { rows: participants } = await client.query(
         "SELECT * FROM match_participants WHERE match_id=$1", [req.params.id]
@@ -206,20 +244,28 @@ export default function createMatchRoutes(io) {
         "SELECT * FROM match_participants WHERE match_id=$1 AND user_id=$2",
         [req.params.id, req.user.id]
       );
-      if (!participant) return res.status(403).json({ error: "Not in this match" });
+      if (!participant) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ error: "Not in this match" });
+      }
 
       const { rows: [match] } = await client.query("SELECT * FROM matches WHERE id=$1", [req.params.id]);
-      if (!match) return res.status(404).json({ error: "Match not found" });
+      if (!match) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Match not found" });
+      }
 
-      if (match.status === 'all_confirmed')
+      if (match.status === 'all_confirmed') {
+        await client.query("ROLLBACK");
         return res.status(400).json({ error: "Cannot cancel a fully confirmed match" });
+      }
 
       const { rows: participants } = await client.query(
         "SELECT listing_id FROM match_participants WHERE match_id=$1", [req.params.id]
       );
 
       for (const p of participants) {
-        await client.query("UPDATE listings SET status='active' WHERE id=$1", [p.listing_id]);
+        if (p.listing_id) await client.query("UPDATE listings SET status='active' WHERE id=$1", [p.listing_id]);
       }
 
       await client.query("UPDATE matches SET status='cancelled' WHERE id=$1", [req.params.id]);
@@ -230,9 +276,10 @@ export default function createMatchRoutes(io) {
       );
 
       await client.query("COMMIT");
-      invalidateCache();
+      invalidateMatchCache();
 
-      io.to(`match_${req.params.id}`).emit('match_cancelled', { matchId: req.params.id });
+      io.to(`match:${req.params.id}`).emit('match_cancelled', { matchId: req.params.id });
+      io.emit('match_cancelled', { matchId: req.params.id });
       res.json({ ok: true });
     } catch (e) {
       await client.query("ROLLBACK");

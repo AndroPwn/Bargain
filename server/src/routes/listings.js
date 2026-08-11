@@ -2,6 +2,7 @@ import { Router } from "express";
 import pool from "../db/pool.js";
 import { requireAuth } from "../middleware/auth.js";
 import { withinRadius } from "../services/trustEngine.js";
+import { invalidateMatchCache } from "./matches.js";
 
 const router = Router();
 
@@ -34,13 +35,14 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 router.post("/", requireAuth, async (req, res) => {
-  const { title, description, category, condition, neighborhood, geohash } = req.body;
+  const { title, description, category, condition, neighborhood, geohash, image_url } = req.body;
   if (!title || !category || !geohash) return res.status(400).json({ error: "title, category, geohash required" });
   const { rows } = await pool.query(
-    `INSERT INTO listings (user_id, title, description, category, condition, neighborhood, geohash)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-    [req.user.id, title, description, category, condition || "good", neighborhood || "Unknown", geohash]
+    `INSERT INTO listings (user_id, title, description, category, condition, neighborhood, geohash, image_url)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [req.user.id, title, description, category, condition || "good", neighborhood || "Unknown", geohash, image_url || null]
   );
+  invalidateMatchCache();
   res.status(201).json(rows[0]);
 });
 
@@ -54,6 +56,7 @@ router.get("/mine", requireAuth, async (req, res) => {
 
 router.delete("/:id", requireAuth, async (req, res) => {
   await pool.query("UPDATE listings SET status = 'cancelled' WHERE id = $1 AND user_id = $2", [req.params.id, req.user.id]);
+  invalidateMatchCache();
   res.json({ ok: true });
 });
 

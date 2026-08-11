@@ -12,7 +12,8 @@ handles it. The fix: always run inside Docker via `docker compose up`.
 - So auth calls fail when running outside Docker
 
 When deployed on VPS with Docker Compose, `server` resolves correctly and login/register works fine.
-Auth flow: email + name → no password, no OTP needed (DEV_MODE=true).
+Auth flow: email + password. With `DEV_MODE=true`, OTP is skipped for local demos. With
+`DEV_MODE=false`, the server sends a verification code using `EMAIL_USER` and `EMAIL_PASS`.
 
 ---
 
@@ -36,6 +37,8 @@ cd ~/barter
 nano .env
 # Change: VITE_API_URL=http://YOUR_VPS_IP:3001
 # Also change: JWT_SECRET=some_long_random_string
+# For production email verification, set DEV_MODE=false and fill EMAIL_USER/EMAIL_PASS.
+# Keep NVIDIA_API_KEY and NVIDIA_API_KEY_MATCH in .env only; never put them in client code.
 ```
 
 ### 4. Run the deploy script
@@ -57,9 +60,9 @@ ufw allow 5173
 ---
 
 ## Auth notes
-- Register with email + name. No password. No phone/OTP.
-- DEV_MODE=true means OTP is skipped entirely — you can sign in/register with just email.
-- To enable real phone OTP: set DEV_MODE=false and fill in Twilio credentials in .env.
+- Register with email, password, and name.
+- `DEV_MODE=true` means OTP is skipped entirely for demos.
+- To enable real email OTP, set `DEV_MODE=false` and fill in `EMAIL_USER` and `EMAIL_PASS` in `.env`.
 - JWT tokens expire after 7 days.
 
 ## Useful commands

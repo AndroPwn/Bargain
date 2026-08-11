@@ -3,6 +3,7 @@ import jwt          from 'jsonwebtoken'
 import bcrypt       from 'bcrypt'
 import nodemailer   from 'nodemailer'
 import pool         from '../db/pool.js'
+import { getJwtSecret } from '../config/env.js'
 
 const router     = Router()
 const SALT       = 10
@@ -44,9 +45,30 @@ async function sendOTPEmail(toEmail, otp, name) {
 function makeToken(user) {
   return jwt.sign(
     { id: user.id, phone: user.phone, name: user.display_name },
-    process.env.JWT_SECRET || 'dev_secret_change_in_prod',
+    getJwtSecret(),
     { expiresIn: '7d' }
   )
+}
+
+async function createUser({ email, name, password, age, city, country, geohash, emailVerified }) {
+  const normalizedEmail = String(email).trim().toLowerCase()
+  const password_hash = await bcrypt.hash(password, SALT)
+  const { rows } = await pool.query(
+    `INSERT INTO users (phone, email, display_name, password_hash, age, neighborhood, country, geohash, email_verified)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+    [
+      normalizedEmail,
+      normalizedEmail,
+      name,
+      password_hash,
+      age || null,
+      city || 'Unknown',
+      country || 'IN',
+      geohash || 'tdr1u',
+      emailVerified,
+    ]
+  )
+  return rows[0]
 }
 
 // ── Dev helpers ──────────────────────────────────────────────
@@ -69,7 +91,8 @@ router.post('/dev-login', async (req, res) => {
 // ── POST /api/auth/send-otp ──────────────────────────────────
 // Step 1 of registration: validate data, send email OTP
 router.post('/send-otp', async (req, res) => {
-  const { email, name, password, age, city, country, geohash } = req.body
+  const { name, password, age, city, country, geohash } = req.body
+  const email = String(req.body.email || '').trim().toLowerCase()
 
   if (!email || !name)           return res.status(400).json({ error: 'Email and name are required' })
   if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' })
@@ -79,18 +102,19 @@ router.post('/send-otp', async (req, res) => {
   const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email])
   if (existing.rows.length) return res.status(409).json({ error: 'An account already exists with this email. Please sign in.' })
 
+  // DEV_MODE is intentionally OTP-free for local demos and Docker deployments.
+  if (process.env.DEV_MODE === 'true') {
+    try {
+      const user = await createUser({ email, name, password, age, city, country, geohash, emailVerified: true })
+      return res.json({ token: makeToken(user), user, verified: true })
+    } catch (e) {
+      if (e.code === '23505') return res.status(409).json({ error: 'An account already exists with this email. Please sign in.' })
+      return res.status(500).json({ error: e.message })
+    }
+  }
+
   // Check email service is configured
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    // If no email configured, skip verification and just register (dev fallback)
-    if (process.env.DEV_MODE === 'true') {
-      const password_hash = await bcrypt.hash(password, SALT)
-      const { rows } = await pool.query(
-        `INSERT INTO users (phone, email, display_name, password_hash, age, neighborhood, country, geohash, email_verified)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,TRUE) RETURNING *`,
-        [email, email, name, password_hash, age||null, city||'Unknown', country||'IN', geohash||'tdr1u']
-      )
-      return res.json({ token: makeToken(rows[0]), user: rows[0], verified: true })
-    }
     return res.status(503).json({ error: 'Email service not configured on server.' })
   }
 
@@ -131,13 +155,8 @@ router.post('/verify-email', async (req, res) => {
   const { email: em, name, password, age, city, country, geohash } = pending.data
 
   try {
-    const password_hash = await bcrypt.hash(password, SALT)
-    const { rows } = await pool.query(
-      `INSERT INTO users (phone, email, display_name, password_hash, age, neighborhood, country, geohash, email_verified)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,TRUE) RETURNING *`,
-      [em, em, name, password_hash, age||null, city||'Unknown', country||'IN', geohash||'tdr1u']
-    )
-    res.json({ token: makeToken(rows[0]), user: rows[0] })
+    const user = await createUser({ email: em, name, password, age, city, country, geohash, emailVerified: true })
+    res.json({ token: makeToken(user), user })
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'Account already exists.' })
     res.status(500).json({ error: e.message })
@@ -146,7 +165,8 @@ router.post('/verify-email', async (req, res) => {
 
 // ── POST /api/auth/login ─────────────────────────────────────
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body
+  const email = String(req.body.email || '').trim().toLowerCase()
+  const { password } = req.body
   if (!email)    return res.status(400).json({ error: 'Email required' })
   if (!password) return res.status(400).json({ error: 'Password required' })
 
@@ -167,18 +187,14 @@ router.post('/login', async (req, res) => {
 
 // ── POST /api/auth/register (legacy / direct — kept for dev) ─
 router.post('/register', async (req, res) => {
-  const { email, name, password, age, city, country, geohash } = req.body
+  const { name, password, age, city, country, geohash } = req.body
+  const email = String(req.body.email || '').trim().toLowerCase()
   if (!email || !name || !password) return res.status(400).json({ error: 'Email, name, password required' })
   const existing = await pool.query('SELECT id FROM users WHERE email=$1', [email])
   if (existing.rows.length) return res.status(409).json({ error: 'Account already exists with this email.' })
   try {
-    const password_hash = await bcrypt.hash(password, SALT)
-    const { rows } = await pool.query(
-      `INSERT INTO users (phone,email,display_name,password_hash,age,neighborhood,country,geohash,email_verified)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,FALSE) RETURNING *`,
-      [email,email,name,password_hash,age||null,city||'Unknown',country||'IN',geohash||'tdr1u']
-    )
-    res.json({ token: makeToken(rows[0]), user: rows[0] })
+    const user = await createUser({ email, name, password, age, city, country, geohash, emailVerified: false })
+    res.json({ token: makeToken(user), user })
   } catch(e) {
     if (e.code==='23505') return res.status(409).json({ error: 'Account already exists.' })
     res.status(500).json({ error: e.message })

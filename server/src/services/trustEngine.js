@@ -6,6 +6,7 @@ export const KARMA = {
 };
 
 export function withinRadius(geohashA, geohashB, precision = 5) {
+  if (!geohashA || !geohashB) return false;
   return geohashA.slice(0, precision) === geohashB.slice(0, precision);
 }
 export function karmaMultiplier(n) { return n > 2 ? 0.1 : 1.0; }
@@ -16,6 +17,10 @@ function norm(s) {
 }
 
 async function callNvidia(prompt) {
+  if (!process.env.NVIDIA_API_KEY_MATCH) {
+    throw new Error("NVIDIA_API_KEY_MATCH is not configured");
+  }
+
   const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
     method: "POST",
     headers: {

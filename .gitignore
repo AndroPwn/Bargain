@@ -4,6 +4,8 @@
 .env.production
 server/.env
 client/.env
+important.keys
+*.keys
 
 # Dependencies
 node_modules/

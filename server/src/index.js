@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 import { runMigrations } from "./db/migrate.js";
 import pool from "./db/pool.js";
 import jwt from "jsonwebtoken";
+import { getJwtSecret, validateServerEnv } from "./config/env.js";
 import authRoutes    from "./routes/auth.js";
 import listingRoutes from "./routes/listings.js";
 import createMatchRoutes from "./routes/matches.js";
@@ -22,6 +23,8 @@ import tradeRoutes   from "./routes/trade.js";
 import carbonRoutes  from "./routes/carbon.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+validateServerEnv();
+
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: "*" }, transports: ["websocket", "polling"] });
@@ -64,7 +67,7 @@ io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error("No token"));
   try {
-    socket.user = jwt.verify(token, process.env.JWT_SECRET);
+    socket.user = jwt.verify(token, getJwtSecret());
     next();
   } catch {
     next(new Error("Invalid token"));

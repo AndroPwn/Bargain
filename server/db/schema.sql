@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS users (
   display_name  TEXT,
   age           INTEGER,
   country       TEXT DEFAULT 'IN',
+  password_hash TEXT,
+  email_verified BOOLEAN NOT NULL DEFAULT FALSE,
   avatar_url    TEXT,
   neighborhood  TEXT NOT NULL DEFAULT 'Unknown',
   geohash       TEXT,
@@ -37,7 +39,9 @@ CREATE TABLE IF NOT EXISTS wants (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   category      TEXT NOT NULL,
+  item_name     TEXT,
   description   TEXT,
+  listing_id    UUID REFERENCES listings(id) ON DELETE CASCADE,
   is_active     BOOLEAN NOT NULL DEFAULT TRUE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -59,6 +63,14 @@ CREATE TABLE IF NOT EXISTS match_participants (
   phone_revealed  BOOLEAN NOT NULL DEFAULT FALSE,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(match_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  match_id    UUID NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+  sender_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body        TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS karma_events (
@@ -117,13 +129,40 @@ CREATE TABLE IF NOT EXISTS trade_pairs (
   CHECK (user_a < user_b)
 );
 
+CREATE TABLE IF NOT EXISTS trade_boards (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        TEXT NOT NULL DEFAULT 'Trade Session',
+  created_by  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS trade_board_members (
+  board_id   UUID NOT NULL REFERENCES trade_boards(id) ON DELETE CASCADE,
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  joined_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (board_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS trade_board_listings (
+  board_id    UUID NOT NULL REFERENCES trade_boards(id) ON DELETE CASCADE,
+  listing_id  UUID NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+  added_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+  notes       TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (board_id, listing_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_listings_geohash   ON listings(geohash);
 CREATE INDEX IF NOT EXISTS idx_listings_status    ON listings(status);
 CREATE INDEX IF NOT EXISTS idx_wants_user         ON wants(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wants_user_listing_unique ON wants(user_id, listing_id);
 CREATE INDEX IF NOT EXISTS idx_karma_user         ON karma_events(user_id);
 CREATE INDEX IF NOT EXISTS idx_match_participants ON match_participants(match_id);
+CREATE INDEX IF NOT EXISTS idx_messages_match     ON messages(match_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_food_geohash       ON food_listings(geohash);
 CREATE INDEX IF NOT EXISTS idx_swipe_wants_listing ON swipe_wants(listing_id);
+CREATE INDEX IF NOT EXISTS idx_trade_board_members_user ON trade_board_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_trade_board_listings_listing ON trade_board_listings(listing_id);
 
 -- Karma tier trigger
 CREATE OR REPLACE FUNCTION update_karma_tier()

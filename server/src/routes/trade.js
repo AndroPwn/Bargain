@@ -4,6 +4,14 @@ import { requireAuth } from "../middleware/auth.js";
 
 const router = Router();
 
+async function requireBoardMember(boardId, userId) {
+  const { rows } = await pool.query(
+    "SELECT 1 FROM trade_board_members WHERE board_id=$1 AND user_id=$2",
+    [boardId, userId]
+  );
+  return rows.length > 0;
+}
+
 // Get all active listings with owner wants + image
 router.get("/listings", requireAuth, async (req, res) => {
   const { rows } = await pool.query(
@@ -32,21 +40,40 @@ router.get("/listings", requireAuth, async (req, res) => {
 // Create a trade board (collaborative session)
 router.post("/boards", requireAuth, async (req, res) => {
   const { name } = req.body;
-  const { rows: [board] } = await pool.query(
-    `INSERT INTO trade_boards (name, created_by) VALUES ($1, $2) RETURNING *`,
-    [name || "Trade Session", req.user.id]
-  );
-  await pool.query(
-    `INSERT INTO trade_board_members (board_id, user_id) VALUES ($1, $2)`,
-    [board.id, req.user.id]
-  );
-  res.status(201).json(board);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows: [board] } = await client.query(
+      `INSERT INTO trade_boards (name, created_by) VALUES ($1, $2) RETURNING *`,
+      [name?.trim() || "Trade Session", req.user.id]
+    );
+    await client.query(
+      `INSERT INTO trade_board_members (board_id, user_id) VALUES ($1, $2)`,
+      [board.id, req.user.id]
+    );
+    await client.query("COMMIT");
+    res.status(201).json(board);
+  } catch (e) {
+    await client.query("ROLLBACK");
+    res.status(500).json({ error: e.message });
+  } finally {
+    client.release();
+  }
 });
 
 // Invite someone to a board
 router.post("/boards/:id/invite", requireAuth, async (req, res) => {
   const { phone } = req.body;
-  const { rows: [target] } = await pool.query("SELECT id FROM users WHERE phone=$1", [phone]);
+  if (!phone?.trim()) return res.status(400).json({ error: "phone or email required" });
+  if (!(await requireBoardMember(req.params.id, req.user.id))) {
+    return res.status(403).json({ error: "Not a member of this board" });
+  }
+
+  const identifier = phone.trim().toLowerCase();
+  const { rows: [target] } = await pool.query(
+    "SELECT id FROM users WHERE phone=$1 OR email=$1",
+    [identifier]
+  );
   if (!target) return res.status(404).json({ error: "User not found" });
   await pool.query(
     `INSERT INTO trade_board_members (board_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
@@ -72,6 +99,17 @@ router.get("/boards", requireAuth, async (req, res) => {
 // Add listing to board
 router.post("/boards/:id/listings", requireAuth, async (req, res) => {
   const { listing_id } = req.body;
+  if (!listing_id) return res.status(400).json({ error: "listing_id required" });
+  if (!(await requireBoardMember(req.params.id, req.user.id))) {
+    return res.status(403).json({ error: "Not a member of this board" });
+  }
+
+  const { rows: [listing] } = await pool.query(
+    "SELECT id FROM listings WHERE id=$1 AND status='active'",
+    [listing_id]
+  );
+  if (!listing) return res.status(404).json({ error: "Active listing not found" });
+
   await pool.query(
     `INSERT INTO trade_board_listings (board_id, listing_id, added_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
     [req.params.id, listing_id, req.user.id]
@@ -81,6 +119,10 @@ router.post("/boards/:id/listings", requireAuth, async (req, res) => {
 
 // Get listings on a board
 router.get("/boards/:id/listings", requireAuth, async (req, res) => {
+  if (!(await requireBoardMember(req.params.id, req.user.id))) {
+    return res.status(403).json({ error: "Not a member of this board" });
+  }
+
   const { rows } = await pool.query(
     `SELECT l.id, l.title, l.category, l.condition, l.image_url,
             u.display_name AS owner_name, u.id AS owner_id,

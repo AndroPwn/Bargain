@@ -35,8 +35,10 @@ docker compose up -d --build
 
 echo ""
 echo "=== Done! ==="
-echo "Frontend: http://$(grep VITE_API_URL .env | cut -d'=' -f2 | sed 's/:3001//')\":5173\""
-echo "Backend:  http://$(grep VITE_API_URL .env | cut -d'=' -f2)"
+API_URL=$(grep '^VITE_API_URL=' .env | cut -d'=' -f2)
+FRONTEND_URL=$(echo "$API_URL" | sed 's/:3001$/:5173/')
+echo "Frontend: $FRONTEND_URL"
+echo "Backend:  $API_URL"
 echo ""
 echo "To view logs: docker compose logs -f"
 echo "To stop:      docker compose down"

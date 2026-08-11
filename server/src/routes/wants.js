@@ -1,6 +1,7 @@
 import { Router } from "express";
 import pool from "../db/pool.js";
 import { requireAuth } from "../middleware/auth.js";
+import { invalidateMatchCache } from "./matches.js";
 
 const router = Router();
 
@@ -43,6 +44,7 @@ router.post("/", requireAuth, async (req, res) => {
        ON CONFLICT (user_id, listing_id) DO NOTHING RETURNING *`,
       [req.user.id, category, description || "", listing_id || null, item_name || ""]
     );
+    invalidateMatchCache();
     res.status(201).json(rows[0] || {});
   } catch (e) {
     if (e.code === "42703") {
@@ -53,6 +55,7 @@ router.post("/", requireAuth, async (req, res) => {
          VALUES ($1,$2,$3,$4,$5) RETURNING *`,
         [req.user.id, category, description || "", listing_id || null, item_name || ""]
       );
+      invalidateMatchCache();
       return res.status(201).json(rows[0]);
     }
     res.status(500).json({ error: e.message });
@@ -64,6 +67,7 @@ router.delete("/:id", requireAuth, async (req, res) => {
     "UPDATE wants SET is_active = FALSE WHERE id = $1 AND user_id = $2",
     [req.params.id, req.user.id]
   );
+  invalidateMatchCache();
   res.json({ ok: true });
 });
 
