@@ -28,3 +28,4 @@ Instead of searching for a direct 1:1 trade, EcoLoop identifies **"Perfect Circl
 ---
 
 **Why EcoLoop?** By automating complex swaps and rewarding users with Karma, EcoLoop turns waste into a community resource.
+-- made for hackathon not prod ready pls mention if u decide to use or borrow code i need the fame
